@@ -2,6 +2,8 @@
  * Voxel Raiders: Dimensional Rift - Client Core Engine
  */
 
+import { GameSimulation } from './gameSimulation.js';
+
 // Procedural Retro Audio Synthesizer
 class SoundFX {
   constructor() {
@@ -324,6 +326,8 @@ class VoxelRaidersApp {
     });
 
     // Lobby actions
+    const btnHost = document.getElementById('btn-host-device');
+    if (btnHost) btnHost.addEventListener('click', () => this.hostOnThisDevice());
     document.getElementById('btn-create-lobby').addEventListener('click', () => this.createLobby());
     document.getElementById('btn-join-lobby').addEventListener('click', () => this.joinLobby());
     document.getElementById('btn-copy-invite').addEventListener('click', () => this.copyInviteLink());
@@ -491,6 +495,56 @@ class VoxelRaidersApp {
     }
   }
 
+  hostOnThisDevice() {
+    this.sound.init();
+    const hostName = document.getElementById('input-player-name').value || 'Host Raider';
+    const gameMode = document.getElementById('select-game-mode').value;
+
+    // Check if local/cloud server is available
+    fetch('/api/rooms/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostName, gameMode })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          this.roomCode = data.roomCode;
+          this.connectAndJoin(this.roomCode, hostName);
+          // Directly launch game onto host canvas
+          setTimeout(() => {
+            this.startGame();
+          }, 350);
+        } else {
+          this.startInBrowserSimulation(hostName, gameMode);
+        }
+      })
+      .catch(() => {
+        // Run in-browser authoritative simulation directly on this host device
+        this.startInBrowserSimulation(hostName, gameMode);
+      });
+  }
+
+  startInBrowserSimulation(hostName, gameMode) {
+    console.log('[Host Engine] Initializing in-browser authoritative simulation on this device...');
+    this.isLocalSimulation = true;
+    this.localSim = new GameSimulation('HOST-LOCAL', gameMode);
+    this.localPlayerId = 'host_player';
+    this.localSim.addPlayer(this.localPlayerId, hostName, this.selectedSkin);
+    this.localSim.start();
+
+    document.getElementById('menu-overlay').classList.add('hidden');
+    document.getElementById('game-hud').classList.remove('hidden');
+
+    // 30Hz Simulation-to-HUD sync
+    setInterval(() => {
+      if (this.isLocalSimulation && this.localSim) {
+        this.worldSnapshot = this.localSim.getPublicSnapshot();
+        this.updateHUD(this.worldSnapshot);
+      }
+    }, 1000 / 30);
+  }
+
   createLobby() {
     this.sound.init();
     const hostName = document.getElementById('input-player-name').value || 'Raid Leader';
@@ -549,18 +603,40 @@ class VoxelRaidersApp {
   }
 
   triggerEclipse() {
+    if (this.isLocalSimulation && this.localSim) {
+      this.localSim.triggerEclipseAltar(this.localPlayerId);
+      return;
+    }
     if (this.ws) {
       this.ws.send(JSON.stringify({ type: 'TRIGGER_ECLIPSE_ALTAR' }));
     }
   }
 
   voteStory() {
+    if (this.isLocalSimulation && this.localSim) {
+      this.localSim.voteAdvanceStory(this.localPlayerId);
+      return;
+    }
     if (this.ws) {
       this.ws.send(JSON.stringify({ type: 'STORY_VOTE' }));
     }
   }
 
   sendAction(action) {
+    if (this.isLocalSimulation && this.localSim) {
+      const p = this.localSim.players.get(this.localPlayerId);
+      if (p && p.state === 'ALIVE') {
+        if (action === 'ATTACK' && this.localSim.activeBoss) {
+          this.localSim.damageBoss(150);
+        }
+        if (action === 'ROLL' && p.stamina >= 25) {
+          p.stamina -= 25;
+          p.x += (this.touchJoystick.active ? this.touchJoystick.vx : 0) * 15;
+          p.y += (this.touchJoystick.active ? this.touchJoystick.vy : 0) * 15;
+        }
+      }
+      return;
+    }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({
       type: 'PLAYER_INPUT',
@@ -694,7 +770,13 @@ class VoxelRaidersApp {
         vy = this.touchJoystick.vy;
       }
 
-      if ((vx !== 0 || vy !== 0) && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (this.isLocalSimulation && this.localSim) {
+        const p = this.localSim.players.get(this.localPlayerId);
+        if (p && p.state === 'ALIVE') {
+          p.x += vx * 12 * 0.033;
+          p.y += vy * 12 * 0.033;
+        }
+      } else if ((vx !== 0 || vy !== 0) && this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({
           type: 'PLAYER_INPUT',
           vx,

@@ -176,23 +176,24 @@
               </div>
 
               <div class="panel-section">
-                <h3>2. LOBBY ACCESS</h3>
-                <div class="lobby-action-row">
-                  <button id="btn-create-lobby" class="pixel-btn pixel-btn-primary">CREATE NEW LOBBY</button>
-                  <div class="mode-select-row">
+                <h3>2. HOST OR JOIN EXPEDITION</h3>
+                <div class="lobby-action-row" style="flex-direction: column; gap: 8px;">
+                  <button id="btn-host-device" class="pixel-btn pixel-btn-primary" style="font-size: 10px; padding: 12px;">🎮 HOST & PLAY ON THIS DEVICE</button>
+                  <div class="mode-select-row" style="display:flex; justify-content:space-between; align-items:center;">
                     <label>MODE:</label>
-                    <select id="select-game-mode" class="pixel-select">
+                    <select id="select-game-mode" class="pixel-select" style="flex:1; margin-left: 10px;">
                       <option value="AGENDA_FFA">AGENDA + FREE-FOR-ALL (Default)</option>
                       <option value="FRIENDLY">FRIENDLY (Pure Co-op)</option>
                     </select>
                   </div>
+                  <button id="btn-create-lobby" class="pixel-btn" style="font-size: 9px;">CREATE CLOUD LOBBY (CUSTOM CODE)</button>
                 </div>
 
-                <div class="divider-text">OR JOIN EXISTING</div>
+                <div class="divider-text" style="margin: 10px 0;">OR JOIN A HOST</div>
 
                 <div class="join-row">
-                  <input type="text" id="input-room-code" class="pixel-input" placeholder="CODE (e.g. VR-7A2F)" maxlength="7">
-                  <button id="btn-join-lobby" class="pixel-btn">JOIN LOBBY</button>
+                  <input type="text" id="input-room-code" class="pixel-input" placeholder="HOST CODE (e.g. VR-7A2F)" maxlength="7">
+                  <button id="btn-join-lobby" class="pixel-btn">JOIN HOST</button>
                 </div>
               </div>
             </div>
