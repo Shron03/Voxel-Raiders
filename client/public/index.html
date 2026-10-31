@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Voxel Raiders: Dimensional Rift</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="game-container">
+    <!-- 3D Isometric Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- TOP BOSS HEALTHBAR (Pinned to top for bosses only, not standard mobs) -->
+    <div id="boss-hud" class="hidden">
+      <div class="boss-header">
+        <span id="boss-name" class="pixel-text">THE SUNKEN WARDEN</span>
+        <span id="boss-phase" class="pixel-tag">PHASE 1</span>
+      </div>
+      <div class="boss-health-track">
+        <div id="boss-health-fill" class="boss-health-bar" style="width: 100%;"></div>
+      </div>
+    </div>
+
+    <!-- IN-GAME HUD -->
+    <div id="game-hud" class="hidden">
+      <!-- Top Left: Player Status & Day/Night Clock -->
+      <div class="hud-top-left">
+        <div class="character-card">
+          <div id="hud-avatar-box" class="avatar-box"></div>
+          <div class="stat-bars">
+            <div class="bar-container hp-bar-container">
+              <span class="bar-label">HP</span>
+              <div class="pixel-bar"><div id="hp-bar-fill" class="fill hp-fill" style="width: 100%;"></div></div>
+            </div>
+            <div class="bar-container stamina-bar-container">
+              <span class="bar-label">STA</span>
+              <div class="pixel-bar"><div id="stamina-bar-fill" class="fill stamina-fill" style="width: 100%;"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="celestial-clock">
+          <div id="time-icon" class="sun-icon">☀️</div>
+          <div class="time-info">
+            <span id="day-counter" class="pixel-title">DAY 1</span>
+            <span id="cycle-phase" class="pixel-sub">DAWN (4m)</span>
+          </div>
+          <button id="btn-eclipse-altar" class="pixel-btn-small" title="Trigger Eclipse (Skip to Night)">🌙 ALTAR</button>
+        </div>
+      </div>
+
+      <!-- Top Right: Minimap & Quick Actions -->
+      <div class="hud-top-right">
+        <div class="minimap-container">
+          <canvas id="minimap-canvas" width="130" height="130"></canvas>
+          <div class="minimap-label">DIMENSIONAL RADAR</div>
+        </div>
+        <div class="quick-buttons">
+          <button id="btn-open-settings" class="pixel-btn-icon">⚙️</button>
+          <button id="btn-open-save-menu" class="pixel-btn-icon" title="Save & World Options">💾</button>
+        </div>
+      </div>
+
+      <!-- Bottom Center: Hotbar & 3 Artifacts -->
+      <div class="hud-bottom-center">
+        <div class="hotbar-wrapper">
+          <div class="slot-group weapons-group">
+            <div class="item-slot active-slot" id="slot-weapon">
+              <span class="slot-num">1</span>
+              <div class="slot-icon">🗡️</div>
+            </div>
+            <div class="item-slot" id="slot-pickaxe">
+              <span class="slot-num">2</span>
+              <div class="slot-icon">⛏️</div>
+            </div>
+          </div>
+
+          <div class="slot-divider"></div>
+
+          <div class="slot-group artifacts-group">
+            <div class="item-slot artifact-slot" id="slot-art-1">
+              <span class="slot-num">Q</span>
+              <div class="slot-icon">⚡</div>
+              <div class="cooldown-overlay" id="cd-art-1"></div>
+            </div>
+            <div class="item-slot artifact-slot" id="slot-art-2">
+              <span class="slot-num">E</span>
+              <div class="slot-icon">🛡️</div>
+              <div class="cooldown-overlay" id="cd-art-2"></div>
+            </div>
+            <div class="item-slot artifact-slot" id="slot-art-3">
+              <span class="slot-num">R</span>
+              <div class="slot-icon">🎆</div>
+              <div class="cooldown-overlay" id="cd-art-3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile Touch Controls (Floating Virtual Thumbstick & Touch Action Buttons) -->
+      <div id="mobile-controls" class="mobile-only">
+        <div id="virtual-joystick-zone">
+          <div id="joystick-base"><div id="joystick-thumb"></div></div>
+        </div>
+        <div class="mobile-action-buttons">
+          <button id="btn-touch-attack" class="touch-btn touch-btn-attack">⚔️</button>
+          <button id="btn-touch-roll" class="touch-btn touch-btn-roll">💨</button>
+          <div class="touch-artifacts">
+            <button id="btn-touch-art1" class="touch-btn touch-btn-small">⚡</button>
+            <button id="btn-touch-art2" class="touch-btn touch-btn-small">🛡️</button>
+            <button id="btn-touch-art3" class="touch-btn touch-btn-small">🎆</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SYNCHRONIZED STORY DIALOGUE (Covers 35% of bottom screen, freezes background) -->
+    <div id="story-dialogue-screen" class="hidden">
+      <div class="dialogue-box">
+        <div class="dialogue-speaker-col">
+          <div id="dialogue-portrait" class="speaker-portrait">📜</div>
+          <span id="dialogue-speaker" class="pixel-text speaker-name">THE RIFT ARBITER</span>
+        </div>
+        <div class="dialogue-content-col">
+          <p id="dialogue-text" class="pixel-text typewriter-text"></p>
+          <div class="dialogue-actions">
+            <span id="story-vote-counter" class="vote-status">VOTES: 1/1</span>
+            <button id="btn-advance-story" class="pixel-btn">PROCEED [SPACE]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN MENU & LOBBY VIEW -->
+    <div id="menu-overlay" class="menu-screen">
+      <div class="retro-window">
+        <div class="window-header">
+          <span class="window-title">VOXEL RAIDERS: DIMENSIONAL RIFT v1.0</span>
+          <div class="window-controls"><span>_</span><span>■</span><span>×</span></div>
+        </div>
+
+        <div class="window-body">
+          <div class="game-logo">
+            <h1>VOXEL RAIDERS</h1>
+            <p class="tagline">ACTION • SANDBOX • MULTIPLAYER</p>
+          </div>
+
+          <!-- Tab Navigation -->
+          <div class="tab-header">
+            <button class="tab-btn active" data-tab="tab-play">PLAY ONLINE</button>
+            <button class="tab-btn" data-tab="tab-downloads">📥 DOWNLOADS</button>
+            <button class="tab-btn" data-tab="tab-lan">LAN & LOCAL</button>
+            <button class="tab-btn" data-tab="tab-saves">WORLD SAVES</button>
+            <button class="tab-btn" data-tab="tab-guide">HOW TO PLAY</button>
+          </div>
+
+          <!-- Tab 1: Play Online -->
+          <div id="tab-play" class="tab-content active">
+            <div class="setup-grid">
+              <div class="panel-section">
+                <h3>1. RAIDER IDENTITY</h3>
+                <label>CALLSIGN:</label>
+                <input type="text" id="input-player-name" class="pixel-input" value="Raider" maxlength="14">
+
+                <label>AVATAR SKIN:</label>
+                <div class="avatar-selector">
+                  <div class="skin-opt selected" data-skin="hero_red" style="background:#e53935;"></div>
+                  <div class="skin-opt" data-skin="hero_blue" style="background:#1e88e5;"></div>
+                  <div class="skin-opt" data-skin="hero_green" style="background:#43a047;"></div>
+                  <div class="skin-opt" data-skin="hero_gold" style="background:#fbc02d;"></div>
+                  <div class="skin-opt" data-skin="hero_purple" style="background:#8e24aa;"></div>
+                  <div class="skin-opt" data-skin="hero_dark" style="background:#37474f;"></div>
+                </div>
+              </div>
+
+              <div class="panel-section">
+                <h3>2. LOBBY ACCESS</h3>
+                <div class="lobby-action-row">
+                  <button id="btn-create-lobby" class="pixel-btn pixel-btn-primary">CREATE NEW LOBBY</button>
+                  <div class="mode-select-row">
+                    <label>MODE:</label>
+                    <select id="select-game-mode" class="pixel-select">
+                      <option value="AGENDA_FFA">AGENDA + FREE-FOR-ALL (Default)</option>
+                      <option value="FRIENDLY">FRIENDLY (Pure Co-op)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="divider-text">OR JOIN EXISTING</div>
+
+                <div class="join-row">
+                  <input type="text" id="input-room-code" class="pixel-input" placeholder="CODE (e.g. VR-7A2F)" maxlength="7">
+                  <button id="btn-join-lobby" class="pixel-btn">JOIN LOBBY</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Active Lobby Staging Area -->
+            <div id="lobby-staging" class="staging-panel hidden">
+              <div class="lobby-meta-bar">
+                <div>ROOM CODE: <span id="display-room-code" class="code-badge">VR-XXXX</span></div>
+                <div>INVITE LINK: <button id="btn-copy-invite" class="pixel-btn-small">📋 COPY LINK</button></div>
+              </div>
+
+              <div class="player-roster-box">
+                <table class="roster-table">
+                  <thead>
+                    <tr><th>RAIDER</th><th>AVATAR</th><th>ROLE</th><th>STATUS</th></tr>
+                  </thead>
+                  <tbody id="roster-tbody">
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="staging-footer">
+                <button id="btn-toggle-ready" class="pixel-btn">READY UP</button>
+                <button id="btn-start-game" class="pixel-btn pixel-btn-success hidden">START EXPEDITION</button>
+                <button id="btn-download-lobby-save" class="pixel-btn-small">💾 SAVE WORLD</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: Downloads (PC & Android Apps & Dedicated Host Server) -->
+          <div id="tab-downloads" class="tab-content">
+            <h3>DISTRIBUTABLE CLIENT & SERVER DOWNLOADS</h3>
+            <p>Download native packages to install the game on PC & Android, or host your own LAN/online dedicated server.</p>
+
+            <div class="setup-grid" style="margin-top: 15px;">
+              <!-- PC Client Download -->
+              <div class="panel-section">
+                <h3>🖥️ PC GAME CLIENT (WINDOWS)</h3>
+                <p style="font-size: 8px; color: #aaa; line-height: 1.6;">Full standalone Windows PC release. Includes local 60 FPS graphics pipeline, keyboard/mouse controls, offline campaign mode, and automatic LAN room discovery.</p>
+                <a href="/downloads/VoxelRaiders-PC-Client.zip" download class="pixel-btn pixel-btn-primary" style="text-decoration:none; text-align:center; display:block; margin-top:8px;">
+                  📥 DOWNLOAD PC CLIENT (.ZIP)
+                </a>
+              </div>
+
+              <!-- Dedicated PC Host Server -->
+              <div class="panel-section">
+                <h3>⚙️ DEDICATED HOST SERVER (PC)</h3>
+                <p style="font-size: 8px; color: #aaa; line-height: 1.6;">Standalone dedicated server for PC. Host high-speed, zero-latency 8-player sessions in your home or on LAN. Features UDP port 48888 auto-discovery and local save management.</p>
+                <a href="/downloads/VoxelRaiders-Dedicated-Host-Server.zip" download class="pixel-btn pixel-btn-primary" style="text-decoration:none; text-align:center; display:block; margin-top:8px;">
+                  📥 DOWNLOAD HOST SERVER (.ZIP)
+                </a>
+              </div>
+
+              <!-- Android Mobile Package -->
+              <div class="panel-section">
+                <h3>📱 ANDROID CLIENT PACKAGE (.APK)</h3>
+                <p style="font-size: 8px; color: #aaa; line-height: 1.6;">Direct installation package for Android devices. Features touchscreen-native dual-stick controls, haptic vibration cues, and responsive ultra-wide scaling.</p>
+                <a href="/downloads/VoxelRaiders-Android.apk" download class="pixel-btn pixel-btn-primary" style="text-decoration:none; text-align:center; display:block; margin-top:8px;">
+                  📥 DOWNLOAD ANDROID (.APK)
+                </a>
+              </div>
+
+              <!-- Instant Web Play -->
+              <div class="panel-section">
+                <h3>🌐 INSTANT BROWSER PLAY</h3>
+                <p style="font-size: 8px; color: #aaa; line-height: 1.6;">No download required! Play directly inside any modern web browser on PC, Mac, Linux, or mobile phone via WebGL & WebSockets with zero installation.</p>
+                <button class="pixel-btn" onclick="document.querySelector('[data-tab=tab-play]').click()" style="margin-top:8px;">
+                  🚀 PLAY IN BROWSER NOW
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="tab-lan" class="tab-content">
+            <h3>SAME-ROOM LAN DIRECT PLAY</h3>
+            <p>Play with friends on the same Wi-Fi network without internet latency.</p>
+            <div class="lan-controls">
+              <button id="btn-scan-lan" class="pixel-btn">🔍 SCAN LOCAL NETWORK</button>
+              <button id="btn-host-lan" class="pixel-btn pixel-btn-primary">HOST LOCAL SERVER</button>
+            </div>
+            <div class="lan-server-list" id="lan-list">
+              <div class="empty-list-notice">No LAN games found on port 48888. Click "Scan" or host one!</div>
+            </div>
+          </div>
+
+          <!-- Tab 3: World Saves -->
+          <div id="tab-saves" class="tab-content">
+            <h3>CRYPTOGRAPHIC WORLD SAVE MANAGER</h3>
+            <p>Saves are secured with SHA-256 and HMAC anti-tamper cryptography. Cloud auto-saves are retained for 24 hours.</p>
+            <div class="save-actions-grid">
+              <div class="save-card">
+                <h4>UPLOAD SAVED WORLD</h4>
+                <p>Select your <code>.vrsave</code> file from your computer or phone to resume your progress.</p>
+                <input type="file" id="file-save-input" accept=".vrsave,.json" class="file-picker">
+                <button id="btn-upload-save" class="pixel-btn">LOAD & HOST SAVE</button>
+              </div>
+              <div class="save-card">
+                <h4>SECURITY VERIFICATION</h4>
+                <p>Inspect and test save file integrity against illegal modifications or injected Void items.</p>
+                <div id="save-status-msg" class="status-box">No save uploaded yet.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 4: Guide -->
+          <div id="tab-guide" class="tab-content">
+            <h3>EXPEDITION FIELD MANUAL</h3>
+            <div class="guide-scroll">
+              <p><strong>🎯 Core Objective:</strong> Clear monument ruins, gather rare materials, and defeat 5 exponential bosses (each 50x stronger than the last).</p>
+              <p><strong>☀️ Day Phase (4 min):</strong> Raid structures, mine ores, and open dungeon chests.</p>
+              <p><strong>🌙 Night Phase (2 min):</strong> Linear difficulty scaling. Hostile mobs spawn with upgraded gear.</p>
+              <p><strong>💀 Death & Anchors:</strong> If you fall, allies have 60 seconds to revive you, or you respawn at your unlocked Anchor after 30 seconds. Common items vanish; Mythical/Void items shatter and must be repaired. If ALL players fall simultaneously, the expedition ends!</p>
+              <p><strong>⚔️ The 5 Boss Portals:</strong> Portals open on Days 110, 310, 510, 710, and 910. With key drops, you may summon early on any day that is a multiple of 10!</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settings-modal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <h3>GRAPHICS & AUDIO SETTINGS</h3>
+        <div class="setting-row">
+          <label>GRAPHICS PROFILE:</label>
+          <select id="select-perf-profile" class="pixel-select">
+            <option value="PC_HIGH">PC 60 FPS (Full Shadows & Bloom)</option>
+            <option value="MOBILE_BALANCED">Mobile Balanced (Optimized)</option>
+            <option value="BATTERY_SAVER">Battery Saver (Low Draw Calls)</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label>SFX VOLUME:</label>
+          <input type="range" id="slider-sfx" min="0" max="100" value="80">
+        </div>
+        <div class="setting-row">
+          <label>CHIPTUNE BGM:</label>
+          <input type="range" id="slider-bgm" min="0" max="100" value="65">
+        </div>
+        <button id="btn-close-settings" class="pixel-btn">CLOSE SETTINGS</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

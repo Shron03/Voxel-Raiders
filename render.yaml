@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: voxel-raiders
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: SAVE_HMAC_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: "*"

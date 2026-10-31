@@ -1,0 +1,30 @@
+{
+  "name": "voxel-raiders",
+  "version": "1.0.0",
+  "description": "Cross-Platform Online Multiplayer Isometric Blocky Action-Sandbox RPG",
+  "main": "server/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "test": "node tests/cycleRunner.js",
+    "test:cycles": "node tests/cycleRunner.js",
+    "desktop": "node desktop/main.js"
+  },
+  "keywords": [
+    "multiplayer",
+    "voxel",
+    "isometric",
+    "action-rpg",
+    "cross-platform",
+    "render",
+    "game"
+  ],
+  "author": "Antigravity Studios",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "ws": "^8.16.0"
+  }
+}
