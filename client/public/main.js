@@ -86,16 +86,24 @@ class SoundFX {
   }
 }
 
-// Isometric Canvas Renderer
+// 3D Isometric Procedural Canvas Engine
 class VoxelRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.tileWidth = 48;
-    this.tileHeight = 24;
+    this.tileWidth = 44;
+    this.tileHeight = 22;
+    this.blockHeight = 16;
     this.cameraX = 0;
     this.cameraY = 0;
     this.graphicsProfile = 'PC_HIGH';
+    this.particles = [];
+    this.lootBeacons = [];
+    this.attackAnim = 0;
+    this.rollAnim = 0;
+
+    // Seeded Noise for Infinite Procedural Generation
+    this.worldSeed = 94817;
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -105,9 +113,26 @@ class VoxelRenderer {
     this.canvas.height = window.innerHeight;
   }
 
-  toIso(x, y) {
+  hash(x, y) {
+    const s = Math.sin(x * 127.1 + y * 311.7 + this.worldSeed) * 43758.5453123;
+    return s - Math.floor(s);
+  }
+
+  getElevation(x, y) {
+    // Sanctuary Sanctuary is flattened
+    const distFromOrigin = Math.sqrt(x * x + y * y);
+    if (distFromOrigin < 4) return 2;
+
+    // Multi-octave Perlin-style wave elevation
+    const w1 = Math.sin(x * 0.12) * Math.cos(y * 0.12) * 3;
+    const w2 = Math.sin(x * 0.04 + y * 0.05) * 4;
+    const raw = Math.floor(w1 + w2 + 3);
+    return Math.max(1, Math.min(8, raw));
+  }
+
+  toIso(x, y, z = 0) {
     const screenX = (x - y) * (this.tileWidth / 2) + this.canvas.width / 2 - this.cameraX;
-    const screenY = (x + y) * (this.tileHeight / 2) + this.canvas.height / 2 - this.cameraY;
+    const screenY = (x + y) * (this.tileHeight / 2) - (z * this.blockHeight) + this.canvas.height / 2 - this.cameraY;
     return { x: screenX, y: screenY };
   }
 
@@ -116,54 +141,158 @@ class VoxelRenderer {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const isNight = worldSnapshot?.isNight;
-    // Ambient Lighting
-    ctx.fillStyle = isNight ? '#0b0d18' : '#283628';
+    // Dynamic Sky / Atmosphere
+    ctx.fillStyle = isNight ? '#080a12' : '#223022';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Center camera on local player
-    const localPlayer = worldSnapshot?.players?.find(p => p.id === localPlayerId);
-    if (localPlayer) {
-      const targetIso = {
-        x: (localPlayer.x - localPlayer.y) * (this.tileWidth / 2),
-        y: (localPlayer.x + localPlayer.y) * (this.tileHeight / 2)
-      };
-      this.cameraX += (targetIso.x - this.cameraX) * 0.1;
-      this.cameraY += (targetIso.y - this.cameraY) * 0.1;
-    }
+    // Camera follow local player
+    const localPlayer = worldSnapshot?.players?.find(p => p.id === localPlayerId) || { x: 0, y: 0 };
+    const playerElevation = this.getElevation(Math.round(localPlayer.x), Math.round(localPlayer.y));
+    const targetIso = {
+      x: (localPlayer.x - localPlayer.y) * (this.tileWidth / 2),
+      y: (localPlayer.x + localPlayer.y) * (this.tileHeight / 2) - (playerElevation * this.blockHeight)
+    };
+    this.cameraX += (targetIso.x - this.cameraX) * 0.15;
+    this.cameraY += (targetIso.y - this.cameraY) * 0.15;
 
-    // Draw Isometric Voxel Grid
-    this.renderGrid(isNight);
+    // Render Procedural 3D Depth-Sorted Voxel World
+    this.renderProceduralWorld(localPlayer, isNight);
 
-    // Draw Anchor Sanctuary
-    this.renderAnchor(0, 0);
-
-    // Draw Entities
-    if (worldSnapshot?.players) {
-      for (const p of worldSnapshot.players) {
-        this.renderPlayer(p, p.id === localPlayerId);
-      }
-    }
-
-    // Draw Boss
+    // Render Boss
     if (worldSnapshot?.activeBoss) {
       this.renderBoss(worldSnapshot.activeBoss);
     }
-  }
 
-  renderGrid(isNight) {
-    const radius = 18;
-    const baseColor = isNight ? '#161d24' : '#3b5335';
-    const topColor = isNight ? '#1f2933' : '#4f6d47';
-
-    for (let x = -radius; x <= radius; x += 2) {
-      for (let y = -radius; y <= radius; y += 2) {
-        const iso = this.toIso(x, y);
-        if (iso.x < -100 || iso.x > this.canvas.width + 100 || iso.y < -100 || iso.y > this.canvas.height + 100) {
-          continue;
+    // Render Other Players
+    if (worldSnapshot?.players) {
+      for (const p of worldSnapshot.players) {
+        if (p.id !== localPlayerId) {
+          this.renderPlayer(p, false);
         }
-        this.drawVoxelBlock(iso.x, iso.y, this.tileWidth, this.tileHeight, 14, topColor, baseColor);
       }
     }
+
+    // Render Local Player with Animations
+    if (localPlayer) {
+      this.renderPlayer(localPlayer, true);
+    }
+
+    // Render Particle Systems & Floating Beacons
+    this.updateAndRenderParticles();
+    this.updateAndRenderLootBeacons();
+  }
+
+  renderProceduralWorld(centerPlayer, isNight) {
+    const radius = 14;
+    const cx = Math.round(centerPlayer.x);
+    const cy = Math.round(centerPlayer.y);
+
+    const sunTop = isNight ? '#1b232b' : '#4c703f';
+    const sunSide = isNight ? '#121820' : '#304727';
+    const dirtColor = isNight ? '#1c1511' : '#4e3629';
+    const stoneColor = isNight ? '#22262c' : '#595e69';
+
+    // Depth Sorting: Render back-to-front by summing (x + y)
+    for (let d = -radius * 2; d <= radius * 2; d++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const dy = d - dx;
+        if (dy < -radius || dy > radius) continue;
+
+        const wx = cx + dx;
+        const wy = cy + dy;
+        const elev = this.getElevation(wx, wy);
+        const iso = this.toIso(wx, wy, elev);
+
+        // Frustum Culling
+        if (iso.x < -60 || iso.x > this.canvas.width + 60 || iso.y < -100 || iso.y > this.canvas.height + 100) {
+          continue;
+        }
+
+        // Draw Layered 3D Voxel Ground
+        const topShade = (elev > 5) ? stoneColor : sunTop;
+        const sideShade = (elev > 5) ? '#383b42' : dirtColor;
+        this.drawVoxelBlock(iso.x, iso.y, this.tileWidth, this.tileHeight, this.blockHeight, topShade, sideShade);
+
+        // Procedural Features: Trees, Ancient Monuments, Chests
+        const propHash = this.hash(wx, wy);
+
+        // Oak Tree Generation
+        if (propHash > 0.90 && (wx !== 0 || wy !== 0) && elev <= 5) {
+          this.drawTree(wx, wy, elev, isNight);
+        }
+
+        // Ancient Monument & Chests
+        if (propHash > 0.84 && propHash <= 0.87) {
+          this.drawChestMonument(wx, wy, elev, isNight);
+        }
+
+        // Sanctuary Anchor at Origin
+        if (wx === 0 && wy === 0) {
+          this.drawSanctuaryAnchor(wx, wy, elev);
+        }
+
+        // Eclipse Altar at (2, 0)
+        if (wx === 2 && wy === 0) {
+          this.drawEclipseAltar(wx, wy, elev);
+        }
+      }
+    }
+  }
+
+  drawTree(wx, wy, elev, isNight) {
+    const trunkColor = isNight ? '#2b1b11' : '#5d4037';
+    const leafColor = isNight ? '#0d2b14' : '#2e7d32';
+    const leafTop = isNight ? '#15401e' : '#43a047';
+
+    // Trunk
+    for (let tz = 1; tz <= 3; tz++) {
+      const isoTrunk = this.toIso(wx, wy, elev + tz);
+      this.drawVoxelBlock(isoTrunk.x, isoTrunk.y, 22, 11, this.blockHeight, trunkColor, '#3e2723');
+    }
+
+    // Leaf Canopy
+    const isoCanopy = this.toIso(wx, wy, elev + 4);
+    this.drawVoxelBlock(isoCanopy.x, isoCanopy.y, 44, 22, 24, leafTop, leafColor);
+  }
+
+  drawChestMonument(wx, wy, elev, isNight) {
+    const isoRuin = this.toIso(wx, wy, elev + 1);
+    // Mossy Stone Pedestal
+    this.drawVoxelBlock(isoRuin.x, isoRuin.y, 32, 16, 10, '#78909c', '#455a64');
+    // Golden Dungeon Chest
+    this.drawVoxelBlock(isoRuin.x, isoRuin.y - 10, 24, 12, 12, '#ffb300', '#ff8f00');
+
+    // Floating interaction prompt
+    this.ctx.fillStyle = '#ffca28';
+    this.ctx.font = '7px monospace';
+    this.ctx.fillText('[E] CHEST', isoRuin.x - 20, isoRuin.y - 24);
+  }
+
+  drawSanctuaryAnchor(wx, wy, elev) {
+    const iso = this.toIso(wx, wy, elev + 1);
+    const ctx = this.ctx;
+
+    // Glowing Sky Beacon Beam
+    const grad = ctx.createLinearGradient(iso.x, iso.y - 250, iso.x, iso.y);
+    grad.addColorStop(0, 'rgba(0, 229, 255, 0)');
+    grad.addColorStop(1, 'rgba(0, 229, 255, 0.6)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(iso.x - 14, iso.y - 250, 28, 250);
+
+    // Radiant Cyan Anchor Block
+    this.drawVoxelBlock(iso.x, iso.y, 36, 18, 20, '#00e5ff', '#0097a7');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '8px monospace';
+    ctx.fillText('SANCTUARY ANCHOR', iso.x - 42, iso.y - 24);
+  }
+
+  drawEclipseAltar(wx, wy, elev) {
+    const iso = this.toIso(wx, wy, elev + 1);
+    this.drawVoxelBlock(iso.x, iso.y, 30, 15, 16, '#9c27b0', '#6a1b9a');
+    this.ctx.fillStyle = '#e1bee7';
+    this.ctx.font = '7px monospace';
+    this.ctx.fillText('[E] ECLIPSE ALTAR', iso.x - 36, iso.y - 18);
   }
 
   drawVoxelBlock(x, y, w, h, depth, topColor, sideColor) {
@@ -177,7 +306,7 @@ class VoxelRenderer {
     ctx.closePath();
     ctx.fillStyle = topColor;
     ctx.fill();
-    ctx.strokeStyle = '#222';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
@@ -192,7 +321,7 @@ class VoxelRenderer {
     ctx.fill();
     ctx.stroke();
 
-    // Right Side Face
+    // Right Side Face (Darker Shading)
     ctx.beginPath();
     ctx.moveTo(x, y + h);
     ctx.lineTo(x + w / 2, y + h / 2);
@@ -204,33 +333,17 @@ class VoxelRenderer {
     ctx.stroke();
   }
 
-  renderAnchor(x, y) {
-    const iso = this.toIso(x, y);
-    const ctx = this.ctx;
-    // Radiant beacon beam
-    const gradient = ctx.createLinearGradient(iso.x, iso.y - 120, iso.x, iso.y);
-    gradient.addColorStop(0, 'rgba(0, 229, 255, 0)');
-    gradient.addColorStop(1, 'rgba(0, 229, 255, 0.45)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(iso.x - 12, iso.y - 120, 24, 120);
-
-    this.drawVoxelBlock(iso.x, iso.y, 40, 20, 16, '#00e5ff', '#0097a7');
-    ctx.fillStyle = '#fff';
-    ctx.font = '8px monospace';
-    ctx.fillText('SANCTUARY ANCHOR', iso.x - 38, iso.y - 10);
-  }
-
   renderPlayer(p, isLocal) {
-    const iso = this.toIso(p.x, p.y);
+    const elev = this.getElevation(Math.round(p.x), Math.round(p.y));
+    const iso = this.toIso(p.x, p.y, elev);
     const ctx = this.ctx;
 
-    // Shadow
+    // Contact Shadow
     ctx.beginPath();
-    ctx.ellipse(iso.x, iso.y + 10, 14, 7, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.ellipse(iso.x, iso.y + 6, 16, 8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.fill();
 
-    // Blocky Player Body
     const colorMap = {
       hero_red: '#e53935',
       hero_blue: '#1e88e5',
@@ -241,45 +354,115 @@ class VoxelRenderer {
     };
     const playerColor = colorMap[p.avatar] || '#e53935';
 
-    if (p.state === 'DOWNED') {
-      // Downed / incapacitated raider
-      this.drawVoxelBlock(iso.x, iso.y + 6, 26, 14, 8, '#757575', '#424242');
-      ctx.fillStyle = '#ff1744';
-      ctx.font = '8px monospace';
-      ctx.fillText(`DOWNED (${p.downedTimer}s)`, iso.x - 24, iso.y - 8);
-      return;
+    // 3D Voxel Torso
+    this.drawVoxelBlock(iso.x, iso.y - 14, 22, 12, 18, playerColor, '#1a1a1a');
+
+    // 3D Voxel Head
+    this.drawVoxelBlock(iso.x, iso.y - 32, 16, 9, 12, '#ffe082', '#ffb74d');
+
+    // Weapon Swing Slash Arc
+    if (this.attackAnim > 0) {
+      ctx.beginPath();
+      ctx.arc(iso.x + 20, iso.y - 10, 28, -Math.PI / 3, Math.PI / 3);
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 4;
+      ctx.shadowColor = '#00e5ff';
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      this.attackAnim -= 0.1;
     }
-
-    // Standing Raider Voxel Body
-    this.drawVoxelBlock(iso.x, iso.y - 12, 20, 12, 18, playerColor, '#1a1a1a');
-
-    // Head
-    this.drawVoxelBlock(iso.x, iso.y - 28, 14, 8, 10, '#ffd54f', '#d7ccc8');
 
     // Nameplate
     ctx.fillStyle = isLocal ? '#fbc02d' : '#ffffff';
     ctx.font = '8px monospace';
-    ctx.fillText(p.name, iso.x - p.name.length * 2.5, iso.y - 38);
+    const name = p.name || 'Raider';
+    ctx.fillText(name, iso.x - name.length * 2.5, iso.y - 40);
   }
 
   renderBoss(boss) {
-    const iso = this.toIso(boss.x, boss.y);
+    const elev = this.getElevation(Math.round(boss.x), Math.round(boss.y));
+    const iso = this.toIso(boss.x, boss.y, elev);
     const ctx = this.ctx;
 
-    // Massive Boss Aura
+    // Giant Boss Shadow Aura
     ctx.beginPath();
-    ctx.ellipse(iso.x, iso.y + 20, 48, 24, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 23, 68, 0.35)';
+    ctx.ellipse(iso.x, iso.y + 20, 52, 26, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(213, 0, 0, 0.35)';
     ctx.fill();
 
-    // Giant Voxel Boss Body
-    this.drawVoxelBlock(iso.x, iso.y - 30, 60, 32, 45, '#d50000', '#4a0000');
-    // Glowing Core
-    this.drawVoxelBlock(iso.x, iso.y - 50, 24, 16, 18, '#ffeb3b', '#f57f17');
+    // 4x Scaled Boss Monolith Body
+    this.drawVoxelBlock(iso.x, iso.y - 40, 68, 34, 48, '#b71c1c', '#4a0000');
+    // Glowing Singularity Eye
+    this.drawVoxelBlock(iso.x, iso.y - 65, 28, 16, 18, '#ffd600', '#ff6f00');
 
-    ctx.fillStyle = '#ff5252';
+    ctx.fillStyle = '#ff1744';
     ctx.font = '10px monospace';
-    ctx.fillText(`[BOSS] ${boss.name}`, iso.x - 70, iso.y - 75);
+    ctx.fillText(`[BOSS] ${boss.name.toUpperCase()}`, iso.x - 85, iso.y - 80);
+  }
+
+  triggerAttackEffect(x, y) {
+    this.attackAnim = 1.0;
+    // Add swing sparks
+    for (let i = 0; i < 6; i++) {
+      this.particles.push({
+        x: x + (Math.random() * 20 - 10),
+        y: y + (Math.random() * 20 - 10),
+        vx: (Math.random() - 0.5) * 4,
+        vy: (Math.random() - 0.5) * 4 - 2,
+        life: 0.3,
+        color: '#00e5ff'
+      });
+    }
+  }
+
+  triggerLootDrop(x, y, itemName, rarityColor) {
+    this.lootBeacons.push({
+      x, y,
+      name: itemName,
+      color: rarityColor,
+      life: 3.5,
+      alpha: 1.0
+    });
+  }
+
+  updateAndRenderParticles() {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= 0.016;
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+      this.ctx.fillStyle = p.color;
+      this.ctx.fillRect(p.x, p.y, 3, 3);
+    }
+  }
+
+  updateAndRenderLootBeacons() {
+    const ctx = this.ctx;
+    for (let i = this.lootBeacons.length - 1; i >= 0; i--) {
+      const b = this.lootBeacons[i];
+      b.life -= 0.016;
+      if (b.life <= 0) {
+        this.lootBeacons.splice(i, 1);
+        continue;
+      }
+      const iso = this.toIso(b.x, b.y, 4);
+      // Beacon Light Column
+      const grad = ctx.createLinearGradient(iso.x, iso.y - 180, iso.x, iso.y);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+      grad.addColorStop(1, b.color);
+      ctx.fillStyle = grad;
+      ctx.fillRect(iso.x - 6, iso.y - 180, 12, 180);
+
+      // Floating Badge
+      ctx.fillStyle = b.color;
+      ctx.font = '9px monospace';
+      ctx.fillText(`✨ ${b.name}`, iso.x - 30, iso.y - 190);
+    }
   }
 }
 
@@ -325,6 +508,12 @@ class VoxelRaidersApp {
       });
     });
 
+    // Direct Instant 3D World Launch
+    const btnInstant = document.getElementById('btn-play-instant');
+    if (btnInstant) {
+      btnInstant.addEventListener('click', () => this.enter3DWorldInstant());
+    }
+
     // Lobby actions
     const btnHost = document.getElementById('btn-host-device');
     if (btnHost) btnHost.addEventListener('click', () => this.hostOnThisDevice());
@@ -362,6 +551,17 @@ class VoxelRaidersApp {
       if (e.key === 'Shift') {
         this.sendAction('ROLL');
         this.sound.playRoll();
+      }
+      if (e.key.toLowerCase() === 'e') {
+        this.interactWorld();
+      }
+    });
+
+    window.addEventListener('mousedown', (e) => {
+      if (e.target.id === 'game-canvas') {
+        this.sound.init();
+        this.sendAction('ATTACK');
+        this.sound.playSwing();
       }
     });
 
@@ -495,6 +695,32 @@ class VoxelRaidersApp {
     }
   }
 
+  enter3DWorldInstant() {
+    this.sound.init();
+    this.sound.playLootFanfare();
+    const raiderName = document.getElementById('input-player-name').value || 'Host Raider';
+    const gameMode = document.getElementById('select-game-mode').value;
+
+    console.log('[VoxelRaiders 3D] Generating Infinite Procedural Voxel World...');
+    this.startInBrowserSimulation(raiderName, gameMode);
+
+    // Also register on local/cloud network so LAN and web players can join the host
+    fetch('/api/rooms/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostName: raiderName, gameMode })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          this.roomCode = data.roomCode;
+          document.getElementById('display-room-code').innerText = this.roomCode;
+          console.log(`[VoxelRaiders 3D] Multiplayer session active. Room Code: ${this.roomCode}`);
+        }
+      })
+      .catch(() => {});
+  }
+
   hostOnThisDevice() {
     this.sound.init();
     const hostName = document.getElementById('input-player-name').value || 'Host Raider';
@@ -622,7 +848,53 @@ class VoxelRaidersApp {
     }
   }
 
+  interactWorld() {
+    const me = this.worldSnapshot?.players?.find(p => p.id === this.localPlayerId) || { x: 0, y: 0 };
+    const distToAltar = Math.hypot(me.x - 2, me.y - 0);
+    const distToAnchor = Math.hypot(me.x - 0, me.y - 0);
+
+    if (distToAltar < 3.5) {
+      this.triggerEclipse();
+      return;
+    }
+
+    if (distToAnchor < 3.5) {
+      this.sound.playLootFanfare();
+      if (this.isLocalSimulation && this.localSim) {
+        const p = this.localSim.players.get(this.localPlayerId);
+        if (p) p.hp = p.maxHp;
+      }
+      return;
+    }
+
+    // Roll Loot Chest at nearby monument
+    const rarityTiers = [
+      { name: 'Common Scrap Iron', color: '#9e9e9e', rate: 0.80 },
+      { name: 'Rare Obsidian Blade', color: '#2196f3', rate: 0.50 },
+      { name: 'Unique Storm Amulet', color: '#9c27b0', rate: 0.10 },
+      { name: 'Legendary Phoenix Bow', color: '#ffc107', rate: 0.01 },
+      { name: 'Mythical Sunken Relic', color: '#e91e63', rate: 0.0001 },
+      { name: 'Void Reality Shard', color: '#00e5ff', rate: 0.00000001 }
+    ];
+
+    const roll = Math.random();
+    let won = rarityTiers[0];
+    if (roll < rarityTiers[5].rate) won = rarityTiers[5];
+    else if (roll < rarityTiers[4].rate) won = rarityTiers[4];
+    else if (roll < rarityTiers[3].rate) won = rarityTiers[3];
+    else if (roll < rarityTiers[2].rate) won = rarityTiers[2];
+    else if (roll < rarityTiers[1].rate) won = rarityTiers[1];
+
+    this.sound.playLootFanfare();
+    this.renderer.triggerLootDrop(me.x, me.y, won.name, won.color);
+  }
+
   sendAction(action) {
+    if (action === 'ATTACK') {
+      const me = this.worldSnapshot?.players?.find(p => p.id === this.localPlayerId) || { x: 0, y: 0 };
+      this.renderer.triggerAttackEffect(me.x, me.y);
+    }
+
     if (this.isLocalSimulation && this.localSim) {
       const p = this.localSim.players.get(this.localPlayerId);
       if (p && p.state === 'ALIVE') {

@@ -1,0 +1,20 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "Games",
+  "Description": "Voxel Raiders: Dimensional Rift - Isometric Action-Sandbox Multiplayer RPG",
+  "Modules": [],
+  "Plugins": [
+    {
+      "Name": "ModelingToolsEditorMode",
+      "Enabled": true,
+      "TargetAllowList": [
+        "Editor"
+      ]
+    },
+    {
+      "Name": "Paper2D",
+      "Enabled": true
+    }
+  ]
+}
